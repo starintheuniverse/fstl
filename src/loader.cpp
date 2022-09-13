@@ -110,14 +110,18 @@ Mesh* mesh_from_verts(uint32_t tri_count, QVector<Vertex>& verts)
 Mesh* Loader::load_stl()
 {
     QFile file(filename);
-    if (!file.open(QIODevice::ReadOnly))
+    if (filename == "-")
+    {
+      file.open(stdin, QIODevice::ReadOnly);
+    }
+    else if (!file.open(QIODevice::ReadOnly))
     {
         emit error_missing_file();
         return NULL;
     }
 
     // First, try to read the stl as an ASCII file
-    if (file.read(5) == "solid")
+    if (file.peek(5) == "solid")
     {
         file.readLine(); // skip solid name
         const auto line = file.readLine().trimmed();
@@ -144,12 +148,23 @@ Mesh* Loader::read_stl_binary(QFile& file)
     data.setFloatingPointPrecision(QDataStream::SinglePrecision);
 
     // Load the triangle count from the .stl file
-    file.seek(80);
+    uint8_t header[80];
+    data.readRawData((char*)header, 80);  // seek unusable for stdin
     uint32_t tri_count;
     data >> tri_count;
 
-    // Verify that the file is the right size
-    if (file.size() != 84 + tri_count*50)
+    // Dummy array, because readRawData is faster than skipRawData
+    std::unique_ptr<uint8_t[]> buffer(new uint8_t[tri_count * 50]);
+    // Spin in case the file device / stdin is not ready all at once.
+    int bytes_read = 0;
+    while (not file.atEnd() and bytes_read < tri_count * 50)
+    {
+        bytes_read += data.readRawData((char*)buffer.get() + bytes_read,
+            tri_count * 50 - bytes_read);
+    }
+
+    // Verify that the file had the right size
+    if (bytes_read != tri_count*50)
     {
         emit error_bad_stl();
         return NULL;
@@ -157,10 +172,6 @@ Mesh* Loader::read_stl_binary(QFile& file)
 
     // Extract vertices into an array of xyz, unsigned pairs
     QVector<Vertex> verts(tri_count*3);
-
-    // Dummy array, because readRawData is faster than skipRawData
-    std::unique_ptr<uint8_t[]> buffer(new uint8_t[tri_count * 50]);
-    data.readRawData((char*)buffer.get(), tri_count * 50);
 
     // Store vertices in the array, processing one triangle at a time.
     auto b = buffer.get() + 3 * sizeof(float);

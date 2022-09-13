@@ -436,7 +436,7 @@ bool Window::load_stl(const QString& filename, bool is_reload)
     connect(loader, &Loader::finished,
             canvas, &Canvas::clear_status);
 
-    if (filename[0] != ':')
+    if (filename[0] != ':' and filename != "-")
     {
         connect(loader, &Loader::loaded_file,
                   this, &Window::setWindowTitle);
